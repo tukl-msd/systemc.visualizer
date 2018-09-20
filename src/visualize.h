@@ -7,14 +7,68 @@
 #include "systemc.h"
 #include <regex>
 
+class Port
+{
+    public:
+    std::string id;
+    std::string name;
+    sc_interface * ptr;
+
+    Port(std::string id, std::string name) : id(id), name(name)
+    {
+    }
+};
+
+//class Edge
+//{
+//    Port start;
+//    Port end;
+//};
+
+class Module
+{
+    public:
+    std::string id;
+    std::string name;
+
+    Module(std::string id, std::string name) : id(id), name(name)
+    {
+    }
+
+    Module()
+    {
+    }
+
+    std::vector<Module> submodules;
+    std::vector<Port> ports;
+    std::map<sc_interface *, std::vector<std::string>> edges;
+};
+
 class visualize
 {
+    private:
+
+    ofstream f;
+    ofstream e;
+
+    // Used for proper indention of the DOT file:
+    unsigned int level;
+
+    // A map for collecting edges between sc_ports
+    std::map<sc_interface *, std::vector<std::string>> edges;
+
+    bool debug;
+
+    std::vector<Module> topModules;
+
     public:
 
     visualize(bool debug=false) : debug(debug)
     {
-        std::string filename = "graph.dot";
-        f.open (filename);
+        std::string dot = "graph.dot";
+        std::string elk = "graph.json";
+        f.open (dot);
+        e.open (elk);
 
         level = 0;
         f << "graph G {" << std::endl;
@@ -31,9 +85,11 @@ class visualize
                 f << "subgraph cluster" << format(t->name()) << " {" << std::endl;
                 f << "    label=\"" << t->basename() << "\";" << std::endl;
                 f << "    shape=component;" << std::endl;
+                topModules.push_back(Module(format(t->name()), t->basename()));
+
+                scanModule(*t, &topModules.back());
             }
 
-            scanModule(*t);
 
             if(std::string(t->kind()) == "sc_module")
             {
@@ -44,8 +100,8 @@ class visualize
 
     visualize(sc_module &t, bool debug = false) : debug(debug)
     {
-        std::string filename = "graph.dot";
-        f.open (filename);
+        std::string dot = "graph.dot";
+        f.open(dot);
 
         level = 0;
         f << "graph G {" << std::endl;
@@ -58,7 +114,7 @@ class visualize
         f << "    label=\"" << t.basename() << "\";" << std::endl;
         f << "    shape=component;" << std::endl;
 
-        scanModule(t);
+        scanModule(t, 0); // TODO
 
         f << "}" << std::endl;
     }
@@ -93,23 +149,51 @@ class visualize
 
         std::cout << "VISUALIZE: graph.dot file written" << std::endl;
 
+        level = 0;
+        e << "algorithm: layered" << std::endl;
+        generateElk(topModules);
+
+        e.close();
+
+        std::cout << "VISUALIZE: graph.json file written" << std::endl;
+
         // Only works on Linux und MAC
         system("dot -Tpdf graph.dot > graph.pdf");
     }
 
-    private:
+    void generateElk(std::vector<Module> modules)
+    {
+        for(auto module : modules)
+        {
+            std::cout << module.name << std::endl;
 
-    ofstream f;
+            indent(e,level);
+            e << "node " << module.id << std::endl;
+            indent(e,level);
+            e << "{ " << std::endl;
+            indent(e,level+1);
+            e <<  "nodeLabelPlacement: \"OUTSIDE H_CENTER V_BOTTOM\"" << std::endl;
+            indent(e,level+1);
+            e << "portLabelPlacement: OUTSIDE" << std::endl;
+            indent(e,level+1);
+            e << "label \"" << module.name << "\"" << std::endl;
 
-    // Used for proper indention of the DOT file:
-    unsigned int level;
+            for(auto port : module.ports)
+            {
+                std::cout << "    " << port.name << std::endl;
+                indent(e,level+1);
+                e << "port " << port.id << " { label '" << port.name << "' }" << std::endl;
+            }
 
-    // A map for collecting edges between sc_ports
-    std::map<sc_interface *, std::vector<std::string>> edges;
+            level ++;
+            generateElk(module.submodules);
+            level --;
+            indent(e,level);
+            e << "}" << std::endl;
+        }
+    }
 
-    bool debug;
-
-    void scanModule(sc_object &t)
+    void scanModule(sc_object &t, Module * currentModule)
     {
         level++;
 
@@ -122,7 +206,21 @@ class visualize
                           << "(" << child->kind() << ")" << std::endl;
             }
 
-            // If port was found:
+            if(std::string(child->kind()) == "sc_module")
+            {
+                indent(f, level);
+                f << "subgraph cluster" << format(child->name()) << " {" << std::endl;
+                indent(f, level);
+                f << "    label=\"" << child->basename() << "\";" << std::endl;
+                indent(f, level);
+                f << "    shape=component;" << std::endl;
+
+                currentModule->submodules.push_back(Module(format(child->name()),child->basename()));
+
+                // Analyze the Child:
+                scanModule(*child, & currentModule->submodules.back());
+            }
+            else // If port was found:
             if(std::string(child->kind()) == "sc_in" ||
                std::string(child->kind()) == "sc_out" ||
                std::string(child->kind()) == "sc_fifo_in" ||
@@ -138,26 +236,17 @@ class visualize
                   << " [label=\"" << child->basename() << "\"]"
                   << ";" << std::endl;
 
-                edges[pointer].push_back(format(child->name()));
+                //edges[pointer].push_back(format(child->name()));
+                currentModule->edges[pointer].push_back(format(child->name()));
+
+                currentModule->ports.push_back(Port(format(child->name()),
+                                                    child->basename()));
             }
             else if(std::string(child->kind()) == "tlm_initiator_socket" || // TODO
                     std::string(child->kind()) == "sc_export" ) // TODO
             {
                 // TODO does not work yet
             }
-            else if(std::string(child->kind()) == "sc_module")
-            {
-                indent(f, level);
-                f << "subgraph cluster" << format(child->name()) << " {" << std::endl;
-                indent(f, level);
-                f << "    label=\"" << child->basename() << "\";" << std::endl;
-                indent(f, level);
-                f << "    shape=component;" << std::endl;
-            }
-
-
-            // Analyze the Child:
-            scanModule(*child);
 
             if(std::string(child->kind()) == "sc_module")
             {
@@ -185,5 +274,6 @@ class visualize
     }
 
 };
+
 
 #endif // VISUALIZE_H
