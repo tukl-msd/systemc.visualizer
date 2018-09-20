@@ -21,22 +21,15 @@ SC_MODULE(B)
     }
 };
 
-SC_MODULE(C)
-{
-    sc_out<int> out;
-
-    SC_CTOR(C) : out("out")
-    {
-
-    }
-};
 
 SC_MODULE(D)
 {
     sc_in<int> in;
     A alpha;
     B beta;
+
     sc_signal<int> sigma;
+    sc_signal<int> delta;
 
     SC_CTOR(D) : in("in"), alpha("alpha"), beta("beta")
     {
