@@ -84,14 +84,10 @@ class visualize
         }
     }
 
-    visualize(sc_module &t, bool debug = false) : debug(debug)
-    {
-        std::cout << "ERROR: Not implementet yet" << std::endl;
-    }
-
     ~visualize()
     {
         generateElk(topModules);
+        std::cout << "\tSystemC Structure Dumped to ELK file" << std::endl;
     }
 
     void scanModule(sc_object &t, Module * currentModule)
@@ -137,9 +133,16 @@ class visualize
                                                     input));
             }
             else if(std::string(child->kind()) == "tlm_initiator_socket" ||
-                    std::string(child->kind()) == "sc_export" )
+                    std::string(child->kind()) == "sc_export" ||
+                    std::string(child->kind()) == "sc_thread_process")
             {
                 // TODO does not work yet
+            }
+            else
+            {
+                std::cout << "Warning: object not known ("
+                          << std::string(child->kind())
+                          << ")" << std::endl;
             }
         }
 
@@ -174,7 +177,7 @@ class visualize
             level --;
             indent(e,level);
 
-            e << "}" << std::endl;
+            e << "}\n" << std::endl;
 
             // Draw edges:
             for(auto port : module.ports)
